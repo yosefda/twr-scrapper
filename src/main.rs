@@ -1,9 +1,8 @@
 extern crate reqwest;
 extern crate select;
 
-use std::io::Read;
 use select::document::Document;
-use select::predicate::{Predicate, Attr, Class, Name, Element};
+use select::predicate::{Predicate, Attr, Class, Name};
 
 const TWR_ARCHIVE_URL: &str = "https://this-week-in-rust.org/blog/archives/index.html";
 
@@ -17,7 +16,6 @@ fn main() {
     // get list of issues and crawl them
     let archive_doc = Document::from(archive_page.as_str());
     for issue_node in archive_doc.find(Class("col-sm-8").descendant(Name("a"))) {
-        println!("{}", issue_node.text());
         let issue_url = issue_node.attr("href").unwrap();
         let issue_page = reqwest::get(issue_url)
             .unwrap()
@@ -25,7 +23,14 @@ fn main() {
             .unwrap();
         let issue_doc = Document::from(issue_page.as_str());
 
-        // only crawl issue with News & Blog Posts section, which should be the first <ul></ul>
+        println!("{}", issue_node.text());
+
+        // only crawl issue with News and Blog Posts section
+        if issue_doc.find(Attr("id", "news-blog-posts")).count() == 0
+            && issue_doc.find(Attr("id", "blog-posts")).count() == 0 {
+            continue;
+        }
+
         for news_blog_posts in issue_doc.find(Name("ul")).take(1) {
             for post in news_blog_posts.children() {
                 for link in post.find(Name("a")) {
@@ -33,6 +38,7 @@ fn main() {
                 }
             }
         }
+        print!("\n");
     }
 }
 
