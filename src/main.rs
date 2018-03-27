@@ -25,15 +25,11 @@ fn main() {
             .unwrap();
         let issue_doc = Document::from(issue_page.as_str());
 
-        // only crawl issue with News & Blog Posts section
+        // only crawl issue with News & Blog Posts section, which should be the first <ul></ul>
         for news_blog_posts in issue_doc.find(Name("ul")).take(1) {
             for post in news_blog_posts.children() {
-                match post.first_child() {
-                    Some(_) => if post.first_child().unwrap().is(Element) {
-                        let link = post.first_child().unwrap();
-                        println!("\t{} --> {}", link.text(), link.attr("href").unwrap());
-                    },
-                    _ => print!(""),
+                for link in post.find(Name("a")) {
+                    println!("\t{} --> {}", link.text(), link.attr("href").unwrap());
                 }
             }
         }
