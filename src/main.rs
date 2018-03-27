@@ -26,6 +26,7 @@ fn main() {
         println!("{}", issue_node.text());
 
         // only crawl issue with News and Blog Posts section
+        // @todo add ability to add more sections e.g. notable links
         if issue_doc.find(Attr("id", "news-blog-posts")).count() == 0
             && issue_doc.find(Attr("id", "blog-posts")).count() == 0 {
             continue;
