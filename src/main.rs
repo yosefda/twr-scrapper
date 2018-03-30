@@ -1,9 +1,16 @@
 extern crate reqwest;
 extern crate select;
+extern crate csv;
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
 
 use select::document::Document;
 use select::predicate::{Predicate, Attr, Class, Name};
 use std::error::Error;
+
+// @todo remove this after we write to file
+use std::io;
 
 /// URL of TWR archive page
 const TWR_ARCHIVE_URL: &str = "https://this-week-in-rust.org/blog/archives/index.html";
@@ -16,7 +23,8 @@ struct Issue {
 }
 
 /// Defines an article that consists of title and URL
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
 struct Article {
     title: String,
     url: String,
@@ -40,8 +48,6 @@ fn main() {
     }
 
     for issue in issues {
-        println!("{}", issue.title);
-
         // download issue page
         let issue_page = match download_url(issue.url.as_str()) {
             Ok(page) => page,
@@ -53,9 +59,8 @@ fn main() {
 
         // get articles from issue page
         let articles = get_articles(issue_page);
-        for article in articles {
-            println!("\t{} --> {}", article.title, article.url);
-        }
+        println!("{} ({} articles)", issue.title, articles.len());
+        let _csv_result = save_to_csv(articles);
     }
 }
 
@@ -117,6 +122,17 @@ fn get_articles(issue_page: String) -> Vec<Article> {
     }
 
     articles
+}
+
+fn save_to_csv(articles: Vec<Article>) -> Result<(), Box<Error>> {
+    let mut wtr = csv::Writer::from_writer(io::stdout());
+
+    for article in articles {
+        wtr.serialize(article)?;
+    }
+
+    wtr.flush()?;
+    Ok(())
 }
 
 
