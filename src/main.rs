@@ -3,6 +3,7 @@ extern crate select;
 
 use select::document::Document;
 use select::predicate::{Predicate, Attr, Class, Name};
+use std::error::Error;
 
 /// URL of TWR archive page
 const TWR_ARCHIVE_URL: &str = "https://this-week-in-rust.org/blog/archives/index.html";
@@ -22,12 +23,36 @@ struct Article {
 }
 
 fn main() {
-    let issues = get_issues(TWR_ARCHIVE_URL);
+    // download archive page
+    let archive_page = match download_url(TWR_ARCHIVE_URL) {
+        Ok(page) => page,
+        Err(err) => {
+            println!("Unable to download {}, reason: {}", TWR_ARCHIVE_URL, err.description());
+            return;
+        }
+    };
+
+    // get issues from archive page
+    let issues = get_issues(archive_page);
+    if issues.is_empty() {
+        println!("No issues found");
+        return;
+    }
 
     for issue in issues {
         println!("{}", issue.title);
 
-        let articles = get_articles(issue.url.as_str());
+        // download issue page
+        let issue_page = match download_url(issue.url.as_str()) {
+            Ok(page) => page,
+            Err(err) => {
+                println!("Unable to issue {}, reason: {}", issue.title, err.description());
+                continue;
+            }
+        };
+
+        // get articles from issue page
+        let articles = get_articles(issue_page);
         for article in articles {
             println!("\t{} --> {}", article.title, article.url);
         }
@@ -39,26 +64,21 @@ fn main() {
 /// # Arguments
 ///
 /// * `url` - A string slice that holds the URL
-fn download_url(url: &str) -> String {
-    reqwest::get(url)
-        .unwrap()
-        .text()
-        .unwrap()
+fn download_url(url: &str) -> Result<String, reqwest::Error> {
+    let page = reqwest::get(url)?.text()?;
+    Ok(page)
 }
-
 
 /// Returns vector of TWR issues from the archive page URL
 ///
 /// # Arguments
 ///
-/// * `archive_url` - A string slice that holds the URL of archive page
-fn get_issues(archive_url: &str) -> Vec<Issue> {
+/// * `archive_url` - A string that holds HTML of the archive page
+fn get_issues(archive_page: String) -> Vec<Issue> {
     let mut issues = Vec::new();
 
-    // parse archive page to get urls of previous issues
-    let archive_page = download_url(archive_url);
-    let archive_doc = Document::from(archive_page.as_str());
-    for issue_node in archive_doc.find(Class("col-sm-8").descendant(Name("a"))) {
+    let dom = Document::from(archive_page.as_str());
+    for issue_node in dom.find(Class("col-sm-8").descendant(Name("a"))) {
         issues.push(Issue {
             title: issue_node.text(),
             url: issue_node.attr("href").unwrap().to_owned(),
@@ -72,32 +92,20 @@ fn get_issues(archive_url: &str) -> Vec<Issue> {
 ///
 /// # Arguments
 ///
-/// * `issue_url` - A string slice that holds the URL of an issue page
-fn get_articles(issue_url: &str) -> Vec<Article> {
-    // parse page to get list of article entries
-    let issue_page = download_url(issue_url);
-    let issue_doc = Document::from(issue_page.as_str());
-
-    // parsing of issue doc in separate function
-    parse_issue_doc(issue_doc)
-}
-
-/// Returns vector of articles from the given issue document
-///
-/// # Arguments
-///
-/// * `issue_doc` - An issue page Document
-fn parse_issue_doc(issue_doc: Document) -> Vec<Article> {
+/// * `issue_url` - A string that holds HTML of the issue page
+fn get_articles(issue_page: String) -> Vec<Article> {
     let mut articles = Vec::new();
 
+    let dom = Document::from(issue_page.as_str());
+
     // ignore issue that doesnt have the section we after
-    if issue_doc.find(Attr("id", "news-blog-posts")).count() == 0
-            && issue_doc.find(Attr("id", "blog-posts")).count() == 0 {
-            return articles;
+    if dom.find(Attr("id", "news-blog-posts")).count() == 0
+        && dom.find(Attr("id", "blog-posts")).count() == 0 {
+        return articles;
     }
 
     // collect the articles
-    for news_blog_posts in issue_doc.find(Name("ul")).take(1) {
+    for news_blog_posts in dom.find(Name("ul")).take(1) {
         for post in news_blog_posts.children() {
             for link in post.find(Name("a")) {
                 articles.push(Article {
@@ -110,4 +118,5 @@ fn parse_issue_doc(issue_doc: Document) -> Vec<Article> {
 
     articles
 }
+
 
