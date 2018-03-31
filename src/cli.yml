@@ -1,5 +1,5 @@
 name: twr-scrapper
-version: "0.11"
+version: "1.0.0"
 author: Yosef da Iry <yosefda@gmail.com>
 about: Scraps articles and news from this-week-in-rust.org and store in a csv file for personal references
 args:
