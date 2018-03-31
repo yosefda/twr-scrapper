@@ -6,11 +6,13 @@ extern crate serde;
 extern crate serde_derive;
 #[macro_use]
 extern crate clap;
+extern crate rayon;
 
 use select::document::Document;
 use select::predicate::{Predicate, Attr, Class, Name};
 use std::error::Error;
 use clap::App;
+use rayon::prelude::*;
 
 /// URL of TWR archive page
 const TWR_ARCHIVE_URL: &str = "https://this-week-in-rust.org/blog/archives/index.html";
@@ -55,13 +57,13 @@ fn run(csv_output: &str) {
         return;
     }
 
-    for issue in issues {
+    issues.into_par_iter().for_each(|issue| {
         // download issue page
         let issue_page = match download_url(issue.url.as_str()) {
             Ok(page) => page,
             Err(err) => {
                 println!("Unable to issue {}, reason: {}", issue.title, err.description());
-                continue;
+                return;
             }
         };
 
@@ -69,7 +71,25 @@ fn run(csv_output: &str) {
         let articles = get_articles(issue_page);
         println!("Processing {} with {} articles...", issue.title, articles.len());
         let _csv_result = save_to_csv(articles, csv_output);
-    }
+    });
+
+
+
+//    for issue in issues {
+//        // download issue page
+//        let issue_page = match download_url(issue.url.as_str()) {
+//            Ok(page) => page,
+//            Err(err) => {
+//                println!("Unable to issue {}, reason: {}", issue.title, err.description());
+//                continue;
+//            }
+//        };
+//
+//        // get articles from issue page
+//        let articles = get_articles(issue_page);
+//        println!("Processing {} with {} articles...", issue.title, articles.len());
+//        let _csv_result = save_to_csv(articles, csv_output);
+//    }
 }
 
 /// Downloads HTML string of the given URL
