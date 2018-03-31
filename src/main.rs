@@ -6,11 +6,14 @@ extern crate serde;
 extern crate serde_derive;
 #[macro_use]
 extern crate clap;
+extern crate rayon;
 
 use select::document::Document;
 use select::predicate::{Predicate, Attr, Class, Name};
 use std::error::Error;
 use clap::App;
+use rayon::prelude::*;
+use std::sync::{Mutex, Arc};
 
 /// URL of TWR archive page
 const TWR_ARCHIVE_URL: &str = "https://this-week-in-rust.org/blog/archives/index.html";
@@ -23,7 +26,7 @@ struct Issue {
 }
 
 /// Defines an article that consists of title and URL
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "PascalCase")]
 struct Article {
     title: String,
@@ -55,21 +58,26 @@ fn run(csv_output: &str) {
         return;
     }
 
-    for issue in issues {
+    // run in parallel collecting articles from every issues
+    let articles = Arc::new(Mutex::new(Vec::new()));
+    issues.par_iter().for_each(|issue| {
         // download issue page
         let issue_page = match download_url(issue.url.as_str()) {
             Ok(page) => page,
             Err(err) => {
                 println!("Unable to issue {}, reason: {}", issue.title, err.description());
-                continue;
+                return;
             }
         };
 
         // get articles from issue page
-        let articles = get_articles(issue_page);
-        println!("Processing {} with {} articles...", issue.title, articles.len());
-        let _csv_result = save_to_csv(articles, csv_output);
-    }
+        let issue_articles = get_articles(issue_page);
+        println!("Processing {} with {} articles", issue.title, issue_articles.len());
+        articles.lock().unwrap().extend(issue_articles);
+    });
+
+    // write to csv
+    let _csv_result = save_to_csv(articles.lock().unwrap().to_vec(), csv_output);
 }
 
 /// Downloads HTML string of the given URL
