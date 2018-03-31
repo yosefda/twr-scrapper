@@ -1,0 +1,12 @@
+name: twr-scrapper
+version: "0.11"
+author: Yosef da Iry <yosefda@gmail.com>
+about: Scraps articles and news from this-week-in-rust.org and store in a csv file for personal references
+args:
+  - output:
+      short: o
+      long: output
+      value_name: FILE
+      help: Sets csv file to store the output
+      takes_value: true
+      required: true

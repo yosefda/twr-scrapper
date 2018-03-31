@@ -4,13 +4,13 @@ extern crate csv;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+#[macro_use]
+extern crate clap;
 
 use select::document::Document;
 use select::predicate::{Predicate, Attr, Class, Name};
 use std::error::Error;
-
-// @todo remove this after we write to file
-use std::io;
+use clap::App;
 
 /// URL of TWR archive page
 const TWR_ARCHIVE_URL: &str = "https://this-week-in-rust.org/blog/archives/index.html";
@@ -31,6 +31,14 @@ struct Article {
 }
 
 fn main() {
+    let cli_yaml = load_yaml!("cli.yml");
+    let matches = App::from_yaml(cli_yaml).get_matches();
+    let csv_output = matches.value_of("output").unwrap();
+    return run(csv_output);
+}
+
+/// Runs the TWR scrapper
+fn run(csv_output: &str) {
     // download archive page
     let archive_page = match download_url(TWR_ARCHIVE_URL) {
         Ok(page) => page,
@@ -59,8 +67,8 @@ fn main() {
 
         // get articles from issue page
         let articles = get_articles(issue_page);
-        println!("{} ({} articles)", issue.title, articles.len());
-        let _csv_result = save_to_csv(articles);
+        println!("Processing {} with {} articles...", issue.title, articles.len());
+        let _csv_result = save_to_csv(articles, csv_output);
     }
 }
 
@@ -124,8 +132,14 @@ fn get_articles(issue_page: String) -> Vec<Article> {
     articles
 }
 
-fn save_to_csv(articles: Vec<Article>) -> Result<(), Box<Error>> {
-    let mut wtr = csv::Writer::from_writer(io::stdout());
+/// Saves articles to the given csv file
+///
+/// # Arguments
+///
+/// * `articles` - A vector that holds list of articles
+/// * `csv_output` - A string slice that holds the path to output csv
+fn save_to_csv(articles: Vec<Article>, csv_output: &str) -> Result<(), Box<Error>> {
+    let mut wtr = csv::Writer::from_path(csv_output)?;
 
     for article in articles {
         wtr.serialize(article)?;
