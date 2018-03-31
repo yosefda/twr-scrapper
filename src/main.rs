@@ -158,3 +158,55 @@ fn save_to_csv(articles: Vec<Article>, csv_output: &str) -> Result<(), Box<Error
 }
 
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::prelude::*;
+    use std::fs::File;
+    use std::path::Path;
+    use std::env;
+
+    fn load_fixture(relative_fixture_path: &str) -> String {
+        let project_root_dir = env::current_dir().unwrap();
+        let fixtures_root_dir = project_root_dir.join(Path::new("tests/fixtures"));
+        let fixture_file_path = fixtures_root_dir.join(Path::new(relative_fixture_path));
+
+        let mut fixture = File::open(fixture_file_path).expect("Unable to open fixture");
+        let mut contents = String::new();
+
+        fixture.read_to_string(&mut contents).expect("Unable to read the file");
+        contents
+    }
+
+    #[test]
+    fn test_get_issues() {
+        let contents = load_fixture("archive_page.html");
+
+        let issues = get_issues(contents);
+        assert_eq!(issues.len(), 230);
+        assert_eq!(issues[0].title, "This Week in Rust 227".to_owned());
+        assert_eq!(issues[0].url, "https://this-week-in-rust.org/blog/2018/03/27/this-week-in-rust-227/".to_owned());
+    }
+
+    #[test]
+    fn test_get_articles_from_issue_without_articles() {
+        let contents = load_fixture("issue_without_articles.html");
+
+        let articles = get_articles(contents);
+        assert!(articles.is_empty());
+    }
+
+    #[test]
+    fn test_get_articles_from_issue_with_articles() {
+        let contents = load_fixture("issue_with_articles.html");
+
+        let articles = get_articles(contents);
+        assert!(!articles.is_empty());
+        assert_eq!(articles.len(), 15);
+        assert_eq!(articles[0].title, "Async/Await VI: 6 weeks of great progress".to_owned());
+        assert_eq!(articles[0].url, "https://boats.gitlab.io/blog/post/2018-03-20-async-vi/".to_owned());
+    }
+}
+
+
