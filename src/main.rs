@@ -58,6 +58,7 @@ fn run(csv_output: &str) {
         return;
     }
 
+    // run in parallel collecting articles from every issues
     let articles = Arc::new(Mutex::new(Vec::new()));
     issues.par_iter().for_each(|issue| {
         // download issue page
@@ -75,6 +76,7 @@ fn run(csv_output: &str) {
         articles.lock().unwrap().extend(issue_articles);
     });
 
+    // write to csv
     let _csv_result = save_to_csv(articles.lock().unwrap().to_vec(), csv_output);
 }
 
