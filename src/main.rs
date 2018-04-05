@@ -14,6 +14,9 @@ use std::error::Error;
 use clap::App;
 use rayon::prelude::*;
 use std::sync::{Mutex, Arc};
+use std::fmt;
+use std::result;
+use std::io;
 
 /// URL of TWR archive page
 const TWR_ARCHIVE_URL: &str = "https://this-week-in-rust.org/blog/archives/index.html";
@@ -32,6 +35,61 @@ struct Article {
     title: String,
     url: String,
 }
+
+/// Defines custom error
+#[derive(Debug)]
+enum ScrapperError {
+    DownloadError(reqwest::Error),
+    CSVError(csv::Error),
+    IOError(io::Error),
+}
+
+/// Implements display for ScrapperError
+impl fmt::Display for ScrapperError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ScrapperError::DownloadError(ref err) => err.fmt(f),
+            ScrapperError::CSVError(ref err) => err.fmt(f),
+            ScrapperError::IOError(ref err) => err.fmt(f),
+        }
+    }
+}
+
+/// Implements Error trait for ScrapperError
+impl Error for ScrapperError {
+    fn description(&self) -> &str {
+        match *self {
+            ScrapperError::DownloadError(ref err) => err.description(),
+            ScrapperError::CSVError(ref err) => err.description(),
+            ScrapperError::IOError(ref err) => err.description(),
+        }
+    }
+}
+
+/// Converts reqwest::Error into ScrapperError
+impl From<reqwest::Error> for ScrapperError {
+    fn from(err: reqwest::Error) -> ScrapperError {
+        ScrapperError::DownloadError(err)
+    }
+}
+
+/// Converts csv::Error into ScrapperError
+impl From<csv::Error> for ScrapperError {
+    fn from(err: csv::Error) -> ScrapperError {
+        ScrapperError::CSVError(err)
+    }
+}
+
+/// Converts io::Error into ScrapperError
+impl From<io::Error> for ScrapperError {
+    fn from(err: io::Error) -> ScrapperError {
+        ScrapperError::IOError(err)
+    }
+}
+
+/// Defines custom Result type
+type Result<T> = result::Result<T, ScrapperError>;
+
 
 fn main() {
     let cli_yaml = load_yaml!("cli.yml");
@@ -77,7 +135,13 @@ fn run(csv_output: &str) {
     });
 
     // write to csv
-    let _csv_result = save_to_csv(articles.lock().unwrap().to_vec(), csv_output);
+    let _csv_result = match save_to_csv(articles.lock().unwrap().to_vec(), csv_output) {
+        Ok(_) => {},
+        Err(err) => {
+            println!("Unable to save csv, reason: {}", err.description());
+            return;
+        }
+    };
 }
 
 /// Downloads HTML string of the given URL
@@ -85,7 +149,7 @@ fn run(csv_output: &str) {
 /// # Arguments
 ///
 /// * `url` - A string slice that holds the URL
-fn download_url(url: &str) -> Result<String, reqwest::Error> {
+fn download_url(url: &str) -> Result<String> {
     let page = reqwest::get(url)?.text()?;
     Ok(page)
 }
@@ -146,7 +210,7 @@ fn get_articles(issue_page: String) -> Vec<Article> {
 ///
 /// * `articles` - A vector that holds list of articles
 /// * `csv_output` - A string slice that holds the path to output csv
-fn save_to_csv(articles: Vec<Article>, csv_output: &str) -> Result<(), Box<Error>> {
+fn save_to_csv(articles: Vec<Article>, csv_output: &str) -> Result<()> {
     let mut wtr = csv::Writer::from_path(csv_output)?;
 
     for article in articles {
@@ -156,7 +220,6 @@ fn save_to_csv(articles: Vec<Article>, csv_output: &str) -> Result<(), Box<Error
     wtr.flush()?;
     Ok(())
 }
-
 
 
 #[cfg(test)]
