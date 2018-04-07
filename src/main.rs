@@ -1,3 +1,5 @@
+#![recursion_limit = "1024"]
+
 extern crate reqwest;
 extern crate select;
 extern crate csv;
@@ -7,6 +9,8 @@ extern crate serde_derive;
 #[macro_use]
 extern crate clap;
 extern crate rayon;
+#[macro_use]
+extern crate error_chain;
 
 use select::document::Document;
 use select::predicate::{Predicate, Attr, Class, Name};
@@ -14,9 +18,12 @@ use std::error::Error;
 use clap::App;
 use rayon::prelude::*;
 use std::sync::{Mutex, Arc};
-use std::fmt;
-use std::result;
-use std::io;
+
+mod errors {
+    error_chain!{}
+}
+
+use errors::*;
 
 /// URL of TWR archive page
 const TWR_ARCHIVE_URL: &str = "https://this-week-in-rust.org/blog/archives/index.html";
@@ -36,94 +43,45 @@ struct Article {
     url: String,
 }
 
-/// Defines custom error
-#[derive(Debug)]
-enum ScrapperError {
-    DownloadError(reqwest::Error),
-    CSVError(csv::Error),
-    IOError(io::Error),
-}
-
-/// Implements display for ScrapperError
-impl fmt::Display for ScrapperError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            ScrapperError::DownloadError(ref err) => err.fmt(f),
-            ScrapperError::CSVError(ref err) => err.fmt(f),
-            ScrapperError::IOError(ref err) => err.fmt(f),
-        }
-    }
-}
-
-/// Implements Error trait for ScrapperError
-impl Error for ScrapperError {
-    fn description(&self) -> &str {
-        match *self {
-            ScrapperError::DownloadError(ref err) => err.description(),
-            ScrapperError::CSVError(ref err) => err.description(),
-            ScrapperError::IOError(ref err) => err.description(),
-        }
-    }
-}
-
-/// Converts reqwest::Error into ScrapperError
-impl From<reqwest::Error> for ScrapperError {
-    fn from(err: reqwest::Error) -> ScrapperError {
-        ScrapperError::DownloadError(err)
-    }
-}
-
-/// Converts csv::Error into ScrapperError
-impl From<csv::Error> for ScrapperError {
-    fn from(err: csv::Error) -> ScrapperError {
-        ScrapperError::CSVError(err)
-    }
-}
-
-/// Converts io::Error into ScrapperError
-impl From<io::Error> for ScrapperError {
-    fn from(err: io::Error) -> ScrapperError {
-        ScrapperError::IOError(err)
-    }
-}
-
-/// Defines custom Result type
-type Result<T> = result::Result<T, ScrapperError>;
-
-
 fn main() {
-    let cli_yaml = load_yaml!("cli.yml");
-    let matches = App::from_yaml(cli_yaml).get_matches();
-    let csv_output = matches.value_of("output").unwrap();
-    return run(csv_output);
+    if let Err(ref e) = run() {
+        println!("error: {}", e);
+        for e in e.iter().skip(1) {
+            println!("caused by: {}", e);
+        }
+        if let Some(backtrace) = e.backtrace() {
+            println!("backtrace: {:?}", backtrace);
+        }
+        std::process::exit(1);
+    }
 }
 
 /// Runs the TWR scrapper
-fn run(csv_output: &str) {
+fn run() -> Result<()> {
+    // parse cmdline args
+    let cli_yaml = load_yaml!("cli.yml");
+    let matches = App::from_yaml(cli_yaml).get_matches();
+    let csv_output = matches.value_of("output").unwrap();
+
     // download archive page
-    let archive_page = match download_url(TWR_ARCHIVE_URL) {
-        Ok(page) => page,
-        Err(err) => {
-            println!("Unable to download {}, reason: {}", TWR_ARCHIVE_URL, err.description());
-            return;
-        }
-    };
+    let archive_page = download_url(TWR_ARCHIVE_URL)
+        .chain_err(|| format!("failed to download archive page {}", TWR_ARCHIVE_URL))?;
 
     // get issues from archive page
     let issues = get_issues(archive_page);
     if issues.is_empty() {
         println!("No issues found");
-        return;
+        return Ok(());
     }
 
     // run in parallel collecting articles from every issues
-    let articles = Arc::new(Mutex::new(Vec::new()));
+    let articles: Arc<Mutex<Vec<Article>>> = Arc::new(Mutex::new(Vec::new()));
     issues.par_iter().for_each(|issue| {
         // download issue page
         let issue_page = match download_url(issue.url.as_str()) {
             Ok(page) => page,
             Err(err) => {
-                println!("Unable to issue {}, reason: {}", issue.title, err.description());
+                println!("Unable to download issue {}, reason: {}", issue.title, err.description());
                 return;
             }
         };
@@ -131,18 +89,17 @@ fn run(csv_output: &str) {
         // get articles from issue page
         let issue_articles = get_articles(issue_page);
         println!("Processing {} with {} articles", issue.title, issue_articles.len());
-        articles.lock().unwrap().extend(issue_articles);
+        articles.lock().expect("failed to acquire lock for articles").extend(issue_articles);
     });
 
     // write to csv
-    let _csv_result = match save_to_csv(articles.lock().unwrap().to_vec(), csv_output) {
-        Ok(_) => {},
-        Err(err) => {
-            println!("Unable to save csv, reason: {}", err.description());
-            return;
-        }
-    };
+    let _csv_result = save_to_csv(
+        articles.lock()
+            .expect("failed to acquire lock for articles").to_vec(), csv_output)?;
+
+    Ok(())
 }
+
 
 /// Downloads HTML string of the given URL
 ///
@@ -150,7 +107,8 @@ fn run(csv_output: &str) {
 ///
 /// * `url` - A string slice that holds the URL
 fn download_url(url: &str) -> Result<String> {
-    let page = reqwest::get(url)?.text()?;
+    let mut response = reqwest::get(url).chain_err(|| "failed GET request")?;
+    let page = response.text().chain_err(|| "failed to decode the response")?;
     Ok(page)
 }
 
@@ -211,13 +169,14 @@ fn get_articles(issue_page: String) -> Vec<Article> {
 /// * `articles` - A vector that holds list of articles
 /// * `csv_output` - A string slice that holds the path to output csv
 fn save_to_csv(articles: Vec<Article>, csv_output: &str) -> Result<()> {
-    let mut wtr = csv::Writer::from_path(csv_output)?;
+    let mut wtr = csv::Writer::from_path(csv_output)
+        .chain_err(|| "failed to created csv writer")?;
 
     for article in articles {
-        wtr.serialize(article)?;
+        wtr.serialize(article).chain_err(|| "failed to serialise article data")?;
     }
 
-    wtr.flush()?;
+    wtr.flush().chain_err(|| "failed to flush csv")?;
     Ok(())
 }
 
